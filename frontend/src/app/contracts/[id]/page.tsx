@@ -2,6 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   FileText,
   Users,
@@ -9,27 +10,27 @@ import {
   Activity,
   MessageSquare,
   Clock,
+  Trash2,
+  Calendar,
+  ShieldCheck,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { ContractTabs, ContractStatusBadge, ClauseTypeBadge } from "@/components/ui/Badges";
-import { fetchContractById, fetchClauses } from "@/lib/api";
+import { fetchContractById, fetchClauses, deleteContract } from "@/lib/api";
 import type { Contract, Clause } from "@/lib/types";
 
-function InfoRow({
+function DataRow({
   label,
   value,
-  sub,
 }: {
   label: string;
   value: string;
-  sub?: string;
 }) {
   return (
-    <div className="py-3 border-b border-slate-100 last:border-0 grid grid-cols-5 gap-4">
-      <dt className="col-span-2 text-sm text-slate-500 font-medium">{label}</dt>
-      <dd className="col-span-3 text-sm text-slate-800 font-medium">
+    <div className="py-3 border-b border-slate-100 last:border-0 grid grid-cols-5 gap-4 items-center">
+      <dt className="col-span-2 text-xs font-bold uppercase tracking-wider text-slate-500">{label}</dt>
+      <dd className="col-span-3 text-sm text-slate-900 font-semibold bg-slate-50 p-2 rounded-lg border border-slate-100">
         {value}
-        {sub && <span className="block text-xs text-slate-400 mt-0.5">{sub}</span>}
       </dd>
     </div>
   );
@@ -50,6 +51,7 @@ export default function ContractOverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const [contract, setContract] = useState<Contract | null>(null);
   const [clauses, setClauses] = useState<Clause[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,17 +75,29 @@ export default function ContractOverviewPage({
     loadData();
   }, [id]);
 
+  async function handleDelete() {
+    if (!contract) return;
+    if (!confirm(`Are you sure you want to delete contract "${contract.title}"?`)) return;
+
+    try {
+      await deleteContract(contract.id);
+      router.push("/");
+    } catch (e) {
+      alert("Failed to delete contract. Please try again.");
+    }
+  }
+
   if (loading) {
     return (
-      <div className="p-8 text-center text-slate-500">
-        Loading contract details from backend database...
+      <div className="p-12 text-center text-slate-500 text-sm">
+        Loading contract details from database...
       </div>
     );
   }
 
   if (error || !contract) {
     return (
-      <div className="p-8 text-center text-red-500">
+      <div className="p-12 text-center text-red-500 text-sm">
         {error || "Contract not found"}
       </div>
     );
@@ -96,109 +110,100 @@ export default function ContractOverviewPage({
         subtitle={contract.filename}
         breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: contract.title }]}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <ContractStatusBadge status={contract.status} />
             <Link
               href={`/contracts/${contract.id}/chat`}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold uppercase tracking-wider rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-md"
             >
               <MessageSquare className="w-4 h-4" />
               Ask AI Assistant
             </Link>
+            <button
+              onClick={handleDelete}
+              className="flex items-center gap-1.5 px-3 py-2 bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 text-xs font-bold uppercase tracking-wider rounded-xl transition-colors shadow-sm"
+              title="Delete Contract"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete Contract
+            </button>
           </div>
         }
       />
       <ContractTabs contractId={contract.id} active="overview" />
 
       <div className="p-8 space-y-6">
-        {/* Quick Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            {
-              icon: FileText,
-              label: "Pages",
-              value: contract.page_count || "—",
-              color: "slate" as const,
-            },
-            {
-              icon: Users,
-              label: "Parties",
-              value: contract.parties?.length || 0,
-              color: "blue" as const,
-            },
-            {
-              icon: Activity,
-              label: "Clauses Classified",
-              value: clauses.length,
-              color: "blue" as const,
-            },
-            {
-              icon: CheckSquare,
-              label: "Status",
-              value: contract.status,
-              color: "amber" as const,
-            },
-          ].map(({ icon: Icon, label, value, color }) => (
-            <div
-              key={label}
-              className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3 shadow-sm"
-            >
-              <div
-                className={`flex items-center justify-center w-9 h-9 rounded-lg ${
-                  color === "blue"
-                    ? "bg-blue-50 text-blue-600"
-                    : color === "amber"
-                    ? "bg-amber-50 text-amber-600"
-                    : "bg-slate-100 text-slate-500"
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">{label}</p>
-                <p className="text-base font-bold text-slate-900">{value}</p>
-              </div>
+        {/* Top Summary Banner */}
+        <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-xl flex flex-wrap items-center justify-between gap-6">
+          <div className="space-y-1">
+            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">
+              Document Title
+            </span>
+            <h1 className="text-xl font-bold">{contract.title}</h1>
+            <p className="text-xs text-slate-300">
+              {contract.filename} · {contract.page_count} Pages · Status: {contract.status}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-4 border-l border-slate-700 pl-6">
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Effective Start
+              </span>
+              <span className="text-sm font-bold text-white">
+                {formatDate(contract.effective_date)}
+              </span>
             </div>
-          ))}
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Expiry Date
+              </span>
+              <span className="text-sm font-bold text-amber-300">
+                {formatDate(contract.expiry_date)}
+              </span>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* ─ Contract Metadata Details ─ */}
-          <section className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">
-              Extracted Contract Details
+          {/* ─ Contract Data Panel (NO button styling) ─ */}
+          <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider pb-2 border-b border-slate-100 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-blue-600" />
+              Extracted Contract Terms & Conditions
             </h2>
             <dl>
-              <InfoRow
+              <DataRow
                 label="Effective Date"
                 value={formatDate(contract.effective_date)}
               />
-              <InfoRow
+              <DataRow
                 label="Expiry Date"
                 value={formatDate(contract.expiry_date)}
               />
-              <InfoRow
+              <DataRow
                 label="Renewal Terms"
-                value={contract.renewal_terms || "Not specified in contract"}
+                value={contract.renewal_terms || "Not specified"}
               />
-              <InfoRow
+              <DataRow
                 label="Payment Terms"
-                value={contract.payment_terms || "Not specified in contract"}
+                value={contract.payment_terms || "Not specified"}
               />
-              <InfoRow
-                label="Termination Conditions"
-                value={contract.termination_conditions || "Not specified in contract"}
+              <DataRow
+                label="Termination Notice"
+                value={contract.termination_conditions || "Not specified"}
               />
             </dl>
           </section>
 
-          {/* ─ Identified Parties ─ */}
-          <section className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">
-              Contract Parties ({contract.parties?.length || 0})
+          {/* ─ Contract Parties Panel ─ */}
+          <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider pb-2 border-b border-slate-100 flex items-center gap-2">
+              <Users className="w-4 h-4 text-blue-600" />
+              Identified Contract Parties ({contract.parties?.length || 0})
             </h2>
             {!contract.parties || contract.parties.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-4">
+              <p className="text-xs text-slate-400 text-center py-6">
                 No contract parties identified
               </p>
             ) : (
@@ -206,20 +211,20 @@ export default function ContractOverviewPage({
                 {contract.parties.map((party) => (
                   <div
                     key={party.id}
-                    className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100"
+                    className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-start gap-3"
                   >
-                    <div className="flex items-center justify-center w-9 h-9 rounded-full bg-blue-100 shrink-0">
-                      <Users className="w-4 h-4 text-blue-600" />
+                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                      {party.role[0] || "P"}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-slate-800">
+                      <h3 className="text-sm font-bold text-slate-900">
                         {party.name}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-0.5 font-medium">
+                      </h3>
+                      <p className="text-xs text-blue-700 font-semibold mt-0.5">
                         Role: {party.role}
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Source: Page {party.source_page} · {party.source_section}
+                      <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                        Evidence: Page {party.source_page} · {party.source_section}
                       </p>
                     </div>
                   </div>
@@ -229,28 +234,29 @@ export default function ContractOverviewPage({
           </section>
         </div>
 
-        {/* ─ Classified Clauses ─ */}
+        {/* ─ Classified Clauses Panel ─ */}
         {clauses.length > 0 && (
-          <section>
-            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
-              Classified Clauses ({clauses.length})
+          <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider pb-2 border-b border-slate-100 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-blue-600" />
+              Key Classified Clauses ({clauses.length})
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {clauses.map((clause) => (
                 <div
                   key={clause.id}
-                  className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm space-y-2"
+                  className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-2"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-800 truncate">
+                    <span className="text-sm font-bold text-slate-900">
                       {clause.title}
-                    </p>
+                    </span>
                     <ClauseTypeBadge type={clause.clause_type} />
                   </div>
-                  <p className="text-xs text-slate-600 leading-relaxed line-clamp-4">
+                  <p className="text-xs text-slate-700 leading-relaxed font-sans">
                     {clause.content}
                   </p>
-                  <p className="text-xs text-slate-400 pt-1">
+                  <p className="text-[11px] text-slate-400 font-mono pt-1 border-t border-slate-200/60">
                     {clause.source_section} · Page {clause.source_page}
                   </p>
                 </div>
@@ -258,31 +264,6 @@ export default function ContractOverviewPage({
             </div>
           </section>
         )}
-
-        {/* Quick Navigation Footer */}
-        <div className="flex flex-wrap gap-3 pt-2">
-          <Link
-            href={`/contracts/${contract.id}/obligations`}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white text-sm font-medium text-slate-700 rounded-xl hover:bg-slate-50 transition-colors shadow-sm"
-          >
-            <CheckSquare className="w-4 h-4 text-slate-500" />
-            View Obligations
-          </Link>
-          <Link
-            href={`/contracts/${contract.id}/timeline`}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white text-sm font-medium text-slate-700 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
-          >
-            <Clock className="w-4 h-4 text-slate-500" />
-            View Timeline
-          </Link>
-          <Link
-            href={`/contracts/${contract.id}/source`}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white text-sm font-medium text-slate-700 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
-          >
-            <FileText className="w-4 h-4 text-slate-500" />
-            View Raw Contract Document
-          </Link>
-        </div>
       </div>
     </div>
   );

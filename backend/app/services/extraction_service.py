@@ -192,64 +192,107 @@ Return ONLY a JSON array of obligation objects with this exact schema:
 
     @classmethod
     def _heuristic_extraction_fallback(cls, full_text: str) -> ExtractionResult:
-        """Rule-based heuristic fallback when Claude API is not configured or offline."""
+        """Rule-based heuristic fallback when Claude API is unconfigured/offline."""
         lines = [l.strip() for l in full_text.splitlines() if l.strip()]
         title = lines[0].replace("--- PAGE 1 ---", "").strip() if lines else "Business Agreement"
 
-        # Heuristic dates search
-        effective_date = None
-        expiry_date = None
-        date_matches = re.findall(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b", full_text)
-        
-        parties = [
-          ExtractedParty(name="Party A (Licensor)", role="Licensor", source_page=1, source_section="Preamble"),
-          ExtractedParty(name="Party B (Licensee)", role="Licensee", source_page=1, source_section="Preamble"),
+        # 1. Regex search for actual date strings in contract text
+        all_dates = re.findall(
+            r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b",
+            full_text,
+            re.IGNORECASE
+        )
+
+        effective_date = all_dates[0] if len(all_dates) >= 1 else None
+        expiry_date = all_dates[1] if len(all_dates) >= 2 else (all_dates[0] if len(all_dates) == 1 else None)
+
+        # 2. Extract potential party names from Preamble lines
+        parties = []
+        preamble_lines = lines[:10]
+        party_matches = re.findall(r"([A-Z][A-Za-z0-9\s,\.]{2,40}\s+(?:Ltd|Inc|Corp|LLC|Corporation|Limited))", "\n".join(preamble_lines))
+
+        if party_matches:
+            for idx, p_name in enumerate(party_matches[:2]):
+                role = "Licensor / Provider" if idx == 0 else "Licensee / Client"
+                parties.append(ExtractedParty(
+                    name=p_name.strip(),
+                    role=role,
+                    source_page=1,
+                    source_section="Preamble"
+                ))
+        else:
+            parties = [
+                ExtractedParty(name="Party A (Licensor)", role="Licensor", source_page=1, source_section="Preamble"),
+                ExtractedParty(name="Party B (Licensee)", role="Licensee", source_page=1, source_section="Preamble"),
+            ]
+
+        # 3. Extract clauses based on section headers
+        clauses = []
+        clause_types_kw = [
+            ("Payment Terms", ClauseType.PAYMENT, ["payment", "fee", "price", "rate", "monthly", "usd", "$"]),
+            ("Term & Renewal", ClauseType.RENEWAL, ["term", "renew", "renewal", "commences", "expire"]),
+            ("Termination", ClauseType.TERMINATION, ["terminate", "termination", "cancel", "written notice"]),
+            ("Confidentiality", ClauseType.CONFIDENTIALITY, ["confidential", "proprietary", "secrecy"]),
+            ("Intellectual Property", ClauseType.INTELLECTUAL_PROPERTY, ["intellectual property", "ip", "copyright", "patent"]),
         ]
 
-        clauses = [
-            ExtractedClause(
-                clause_type=ClauseType.PAYMENT,
-                title="Payment Terms",
-                content="Licensee shall pay monthly fees on the first day of each calendar month.",
-                source_page=1,
-                source_section="Section 1. Payment"
-            ),
-            ExtractedClause(
-                clause_type=ClauseType.RENEWAL,
-                title="Renewal & Termination",
-                content="Agreement auto-renews annually unless written notice is given 60 days before expiry.",
-                source_page=2,
-                source_section="Section 2. Renewal"
-            ),
-        ]
+        for title_str, c_type, keywords in clause_types_kw:
+            for line in lines:
+                if any(kw in line.lower() for kw in keywords) and len(line) > 20:
+                    clauses.append(ExtractedClause(
+                        clause_type=c_type,
+                        title=title_str,
+                        content=line[:300],
+                        source_page=1,
+                        source_section=title_str
+                    ))
+                    break
 
-        obligations = [
-            ExtractedObligation(
-                responsible_party="Licensee",
-                action="Pay monthly license fees",
-                due_rule="1st of each calendar month",
+        if not clauses:
+            clauses = [
+                ExtractedClause(
+                    clause_type=ClauseType.PAYMENT,
+                    title="Payment Terms",
+                    content="Licensee shall pay fees as set forth in the agreement.",
+                    source_page=1,
+                    source_section="Section 1. Payment"
+                ),
+            ]
+
+        # 4. Extract obligations
+        obligations = []
+        ob_lines = [l for l in lines if any(w in l.lower() for w in ["shall", "must", "agrees to", "required"])]
+        for idx, line in enumerate(ob_lines[:3]):
+            obligations.append(ExtractedObligation(
+                responsible_party="Licensee / Client" if idx % 2 == 0 else "Licensor / Provider",
+                action=line[:200],
+                due_rule=f"As specified in Section {idx+1}",
+                due_date=expiry_date if idx == 0 else None,
                 source_page=1,
-                source_section="Section 1",
-                source_text="Licensee shall pay Licensor $10,000 per month on the 1st of each calendar month."
-            ),
-            ExtractedObligation(
-                responsible_party="Licensee",
-                action="Submit quarterly security audit report",
-                due_rule="Quarterly by the 15th of the month following quarter end",
-                source_page=2,
-                source_section="Section 3",
-                source_text="Licensee must submit security audit report quarterly by the 15th."
-            ),
-        ]
+                source_section=f"Section {idx+1}",
+                source_text=line[:300]
+            ))
+
+        if not obligations:
+            obligations = [
+                ExtractedObligation(
+                    responsible_party="Licensee",
+                    action="Pay required fees according to schedule",
+                    due_rule="Monthly",
+                    source_page=1,
+                    source_section="Section 1",
+                    source_text="Licensee shall pay Licensor according to schedule."
+                )
+            ]
 
         return ExtractionResult(
             metadata=ExtractedMetadata(
                 title=title,
-                effective_date="2026-01-01",
-                expiry_date="2027-12-31",
-                renewal_terms="Auto-renews annually unless notice given 60 days prior.",
-                payment_terms="Monthly fee due on the 1st of each calendar month.",
-                termination_conditions="30 days written notice for cause.",
+                effective_date=effective_date,
+                expiry_date=expiry_date,
+                renewal_terms="Auto-renews annually unless notice is given prior to expiry.",
+                payment_terms="Payment due according to specified schedule.",
+                termination_conditions="Written notice required for termination.",
                 parties=parties
             ),
             clauses=clauses,

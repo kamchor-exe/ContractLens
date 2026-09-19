@@ -48,6 +48,7 @@ export interface Contract {
   renewal_terms: string;
   payment_terms: string;
   termination_conditions: string;
+  raw_text?: string;
   page_count: number;
   created_at: string;
   processed_at: string;

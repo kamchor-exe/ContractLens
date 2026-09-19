@@ -115,6 +115,7 @@ class ContractResponse(ContractBase):
     renewal_terms: Optional[str] = None
     payment_terms: Optional[str] = None
     termination_conditions: Optional[str] = None
+    raw_text: Optional[str] = None
     page_count: int = 0
     created_at: datetime
     processed_at: Optional[datetime] = None

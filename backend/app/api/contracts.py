@@ -113,17 +113,9 @@ async def upload_contract(
         # 1. Run structured AI extraction (falls back to heuristics if no API key)
         extraction: ExtractionResult = await extraction_service.extract_all(pdf_result.full_text)
 
-        # 2. Parse dates from extraction metadata
-        def _parse_date(ds):
-            if not ds:
-                return None
-            try:
-                return date.fromisoformat(ds[:10])
-            except (ValueError, TypeError):
-                return None
-
-        eff_date = _parse_date(extraction.metadata.effective_date)
-        exp_date = _parse_date(extraction.metadata.expiry_date)
+        # 2. Parse dates from extraction metadata using robust date parser
+        eff_date = dl_svc.parse_date_robust(extraction.metadata.effective_date)
+        exp_date = dl_svc.parse_date_robust(extraction.metadata.expiry_date)
 
         # 3. Save contract row with extracted metadata
         contract = Contract(
@@ -171,7 +163,7 @@ async def upload_contract(
         # 6. Save obligations
         obligation_ids = []
         for ob in extraction.obligations:
-            ob_date = _parse_date(ob.due_date)
+            ob_date = dl_svc.parse_date_robust(ob.due_date)
             ob_row = Obligation(
                 contract_id=contract_id,
                 responsible_party=ob.responsible_party,
