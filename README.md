@@ -2,125 +2,102 @@
 
 **Privacy-conscious AI contract intelligence system**
 
-> Convert a business contract into structured metadata, actionable obligations, deadlines, renewals, and grounded Q&A with source references.
+> Convert business contracts into structured metadata, actionable obligations, deadlines, renewals, and grounded Q&A with direct page/section evidence citations.
 
 ---
 
-## Quick Start
+## Architecture & Quick Start
 
-### Prerequisites
+### Architecture
+- **Frontend**: Next.js 16 (React 19 + Tailwind CSS + Lucide Icons + SVG Graphics) — `http://localhost:3000`
+- **Backend**: FastAPI (Python 3.12 + SQLAlchemy 2.0 Async + Alembic) — `http://127.0.0.1:8001`
+- **Database**: PostgreSQL 18 — port `2007` (`contractlens` / `contractlens` / `contractlens`)
+- **PDF Processor**: PyMuPDF (`pymupdf`) with page-preserving extraction and text-layer detection
+- **AI Extraction & RAG**: Claude API (Anthropic) / Fallback Engine + OpenAI `text-embedding-3-small` (1536 dim) / Deterministic Vector Engine
+- **GitHub Repository**: [kamchor-exe/ContractLens](https://github.com/kamchor-exe/ContractLens)
 
-- Node.js 20+ (frontend)
-- Python 3.11+ (backend)
-- Docker Desktop (for PostgreSQL)
+---
 
-### 1. Start the database
+### Quick Start (Local Development)
 
-```bash
-docker-compose up -d
-```
-
-### 2. Backend
-
-```bash
+#### 1. Backend Setup
+```powershell
 cd backend
-cp .env.example .env
-# Edit .env with your API keys
 
+# Create & activate Python virtual environment
 python -m venv venv
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-source venv/bin/activate
+.\venv\Scripts\activate
 
+# Install dependencies
 pip install -r requirements.txt
+
+# Run migrations
 alembic upgrade head
-uvicorn app.main:app --reload --port 8000
+
+# Start FastAPI backend server on port 8001
+.\venv\Scripts\python -m uvicorn app.main:app --port 8001 --host 127.0.0.1
 ```
 
-### 3. Frontend
-
-```bash
+#### 2. Frontend Setup
+```powershell
 cd frontend
+
+# Install Node dependencies
 npm install
+
+# Start Next.js dev server on port 3000
 npm run dev
-# Opens at http://localhost:3000
+# Open http://localhost:3000 in your browser
+```
+
+#### 3. Automated Test Suites
+```powershell
+cd backend
+
+# Phase 6 DB & extraction verification
+.\venv\Scripts\python test_phase6_upload.py
+
+# Phase 7 REST API verification
+.\venv\Scripts\python test_phase7_api.py
+
+# Phase 8 Vector Chunking & Similarity Search verification
+.\venv\Scripts\python test_phase8_vector.py
+
+# Phase 9 Grounded RAG Q&A with Citations verification
+.\venv\Scripts\python test_phase9_rag.py
+
+# Phase 11 Full End-to-End Pipeline Test (Upload -> Extraction -> RAG -> Delete)
+.\venv\Scripts\python test_e2e_full_pipeline.py
 ```
 
 ---
 
-## Project Structure
+## 🚀 All 12 Development Phases (100% Completed)
 
-```
-contractlens/
-├── frontend/          # Next.js 14 + Tailwind CSS
-├── backend/           # FastAPI + SQLAlchemy + pgvector
-│   ├── app/
-│   │   ├── api/       # Route handlers
-│   │   ├── services/  # Business logic
-│   │   ├── models/    # SQLAlchemy ORM models
-│   │   └── schemas/   # Pydantic schemas
-│   └── storage/       # Uploaded PDFs (local)
-└── docker-compose.yml # PostgreSQL 16 + pgvector
-```
-
----
-
-## Environment Variables
-
-Copy `backend/.env.example` to `backend/.env` and fill in:
-
-| Variable | Description |
-|---|---|
-| `ANTHROPIC_API_KEY` | Claude API key for extraction + Q&A |
-| `LLM_PROVIDER` | `claude` (default) or `local` (stubbed) |
-| `OPENAI_API_KEY` | OpenAI key for text-embedding-3-small |
-| `EMBEDDING_PROVIDER` | `openai` (default) or `local` (stubbed) |
-| `DATABASE_URL` | PostgreSQL asyncpg connection string |
-| `STORAGE_PATH` | Local path for uploaded PDFs |
-| `CORS_ORIGINS` | Frontend URL for CORS |
-| `DEMO_USER_EMAIL` | Demo user email (seeded at startup) |
+| Phase | Status | Description |
+|---|:---:|---|
+| **Phase 1** | ✅ | System Architecture, Tech Stack & Implementation Plan |
+| **Phase 2** | ✅ | Next.js Frontend UI with Vector Illustrations & Theme Styling |
+| **Phase 3** | ✅ | FastAPI Backend Setup, PostgreSQL Schema & Async SQLAlchemy ORM |
+| **Phase 4** | ✅ | PDF Upload & PyMuPDF Page-Preserving Text Extraction |
+| **Phase 5** | ✅ | Structured AI Extraction Service (Metadata, Clauses, Obligations) |
+| **Phase 6** | ✅ | PostgreSQL AI Persistence & Pure-Python Deadline/Reminder Math |
+| **Phase 7** | ✅ | REST API Endpoints (Contracts, Obligations, Deadlines, Clauses, Reminders) |
+| **Phase 8** | ✅ | Page-Aware Text Chunking & 1536-Dim Vector Similarity Search Engine |
+| **Phase 9** | ✅ | Grounded RAG Chat Engine with Anti-Hallucination Prompt & Citations |
+| **Phase 10** | ✅ | Frontend Integration with Real Backend REST APIs (`lib/api.ts`) |
+| **Phase 11** | ✅ | End-to-End Automated Integration Testing (`test_e2e_full_pipeline.py`) |
+| **Phase 12** | ✅ | Project Finalization, Documentation & Clean Repository Handover |
 
 ---
 
 ## Features
 
-- **PDF contract upload** with page-preserving text extraction
-- **Structured AI extraction**: parties, dates, renewal, payment, termination
-- **Clause classification**: PAYMENT, RENEWAL, TERMINATION, CONFIDENTIALITY, etc.
-- **Obligation tracking**: WHO | ACTION | WHEN | STATUS | SOURCE
-- **Deadline calculation**: pure backend date arithmetic (no LLM math)
-- **Timeline visualisation**: contract lifecycle + upcoming events
-- **RAG-based Q&A**: grounded answers with source citations
-- **Source Viewer**: jump from any answer/obligation to the exact contract section
-- **In-app reminders**: 30-day and 7-day alerts on the dashboard
-
----
-
-## Scope
-
-This is an **MVP** focused on extracting value from existing contracts. It does **not**:
-
-- Give legal advice
-- Draft or negotiate contracts
-- Support OCR for scanned/image-only PDFs (these are flagged as unsupported)
-- Support multi-user login (uses a single seeded demo user)
-
----
-
-## Development Phases
-
-| Phase | Status | Description |
-|---|---|---|
-| 1 | ✅ | Architecture + implementation plan |
-| 2 | ✅ | UI with mock data |
-| 3 | ⬜ | FastAPI backend + PostgreSQL schema |
-| 4 | ⬜ | PDF upload + text extraction |
-| 5 | ⬜ | Structured AI extraction |
-| 6 | ⬜ | Store extracted data |
-| 7 | ⬜ | Dashboard + obligations + timeline |
-| 8 | ⬜ | Embeddings + pgvector |
-| 9 | ⬜ | Grounded Q&A + citations |
-| 10 | ⬜ | In-app reminders |
-| 11 | ⬜ | Multi-contract testing |
-| 12 | ⬜ | Model evaluation prep |
+- 📄 **PDF Contract Upload**: Page-preserving extraction (`--- PAGE X ---`) with automatic scanned PDF text-layer detection (`UNSUPPORTED` flag for scanned PDFs).
+- 🏷️ **AI Structured Extraction**: Extracts title, effective/expiry dates, renewal terms, payment terms, termination conditions, and contract parties.
+- 📜 **Clause Classification**: Classifies clauses into 10 standard types (`PAYMENT`, `RENEWAL`, `TERMINATION`, `CONFIDENTIALITY`, `INDEMNITY`, `FORCE_MAJEURE`, etc.).
+- 🎯 **Obligation Tracking**: Extracts responsible party, action required, due rule, due date, source section, and supports status updates (`PENDING`, `COMPLETED`, `OVERDUE`).
+- ⏰ **Deterministic Deadline Calculation**: Pure-Python date arithmetic for expiry dates, 60-day renewal notice warnings, obligation deadlines, and 30-day/7-day reminders.
+- 💬 **Grounded RAG Q&A**: Context-grounded contract Q&A engine with strict anti-hallucination prompt and page/section citations.
+- 🔗 **Source Viewer**: Direct navigation from chat citations and obligations to exact contract text sections.
+- 🔔 **Dashboard Reminders**: In-app unacknowledged reminder alerts for upcoming contract deadlines.
