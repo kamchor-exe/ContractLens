@@ -1,64 +1,12 @@
 "use client";
 
-import { use, useState, useRef, useEffect } from "react";
-import { Send, Bot, User, BookOpen, ChevronDown } from "lucide-react";
+import { use, useEffect, useState, useRef } from "react";
+import Link from "next/link";
+import { Send, Bot, User as UserIcon, Sparkles, FileText, ArrowRight } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { ContractTabs } from "@/components/ui/Badges";
-import { MOCK_CONTRACTS, MOCK_CHAT_MESSAGES } from "@/lib/mock-data";
-import type { ChatMessage, Citation } from "@/lib/types";
-import Link from "next/link";
-
-// Simple markdown-like renderer for bold text
-function MessageContent({ content }: { content: string }) {
-  const parts = content.split(/(\*\*[^*]+\*\*)/g);
-  return (
-    <span>
-      {parts.map((part, i) =>
-        part.startsWith("**") && part.endsWith("**") ? (
-          <strong key={i} className="font-semibold">
-            {part.slice(2, -2)}
-          </strong>
-        ) : (
-          <span key={i}>{part}</span>
-        )
-      )}
-    </span>
-  );
-}
-
-function CitationCard({
-  citation,
-  contractId,
-}: {
-  citation: Citation;
-  contractId: string;
-}) {
-  return (
-    <Link
-      href={`/contracts/${contractId}/source?chunk=${citation.chunk_id}&page=${citation.source_page}&section=${encodeURIComponent(citation.source_section)}`}
-      className="block mt-2 p-3 rounded-lg bg-slate-50 border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors"
-    >
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <BookOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-        <span className="text-xs font-semibold text-blue-700">
-          {citation.source_section}
-        </span>
-        <span className="text-xs text-slate-400">· p.{citation.source_page}</span>
-      </div>
-      <p className="text-xs text-slate-600 italic leading-relaxed line-clamp-3">
-        "{citation.snippet}"
-      </p>
-    </Link>
-  );
-}
-
-const SUGGESTED_QUESTIONS = [
-  "What happens if we miss a payment?",
-  "When must we send the non-renewal notice?",
-  "What is the uptime SLA?",
-  "How can either party terminate?",
-  "What data protection obligations apply?",
-];
+import { fetchContractById, fetchChatHistory, sendChatMessage } from "@/lib/api";
+import type { Contract, ChatMessage } from "@/lib/types";
 
 export default function ChatPage({
   params,
@@ -66,180 +14,206 @@ export default function ChatPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const contract = MOCK_CONTRACTS.find((c) => c.id === id) ?? MOCK_CONTRACTS[0];
-  const [messages, setMessages] = useState<ChatMessage[]>(MOCK_CHAT_MESSAGES);
+  const [contract, setContract] = useState<Contract | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to bottom when messages change
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    async function loadData() {
+      try {
+        const [cData, chatData] = await Promise.all([
+          fetchContractById(id),
+          fetchChatHistory(id).catch(() => []),
+        ]);
+        setContract(cData);
+        setMessages(chatData);
+      } catch (err) {
+        console.error("Error loading chat data:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, [id]);
 
-  function handleSuggestion(q: string) {
-    setInput(q);
-  }
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, sending]);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSend(e: React.FormEvent) {
     e.preventDefault();
-    const trimmed = input.trim();
-    if (!trimmed || loading) return;
+    if (!input.trim() || sending) return;
+
+    const userText = input.trim();
     setInput("");
+    setSending(true);
 
-    const userMsg: ChatMessage = {
-      id: `m-${Date.now()}-u`,
+    // Optimistically append User Message
+    const tempUserMsg: ChatMessage = {
+      id: "temp-" + Date.now(),
       role: "USER",
-      content: trimmed,
+      content: userText,
       created_at: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, userMsg]);
-    setLoading(true);
+    setMessages((prev) => [...prev, tempUserMsg]);
 
-    // Mock AI response delay (real response from backend in Phase 9)
-    await new Promise((res) => setTimeout(res, 1200));
-
-    const assistantMsg: ChatMessage = {
-      id: `m-${Date.now()}-a`,
-      role: "ASSISTANT",
-      content:
-        "I'm currently running on mock data. Once the backend is connected in Phase 9, I'll retrieve relevant contract clauses and answer your question with source citations.",
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, assistantMsg]);
-    setLoading(false);
+    try {
+      const assistantResponse = await sendChatMessage(id, userText);
+      setMessages((prev) => [...prev, assistantResponse]);
+    } catch (err) {
+      console.error("Chat error:", err);
+      const errorMsg: ChatMessage = {
+        id: "err-" + Date.now(),
+        role: "ASSISTANT",
+        content: "Sorry, I could not complete your query. Please check your backend service.",
+        citations: [],
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-screen overflow-hidden bg-slate-50">
       <PageHeader
-        title="AI Assistant"
-        subtitle={contract.title}
+        title={contract ? `${contract.title} — AI Assistant` : "Grounded AI Chat"}
+        subtitle="Grounded Q&A with direct evidence citations"
         breadcrumbs={[
           { label: "Dashboard", href: "/" },
-          { label: contract.title, href: `/contracts/${contract.id}` },
-          { label: "AI Assistant" },
+          { label: contract?.title || "Contract", href: `/contracts/${id}` },
+          { label: "Chat" },
         ]}
       />
-      <ContractTabs contractId={contract.id} active="chat" />
+      <ContractTabs contractId={id} active="chat" />
 
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-5">
-        {/* Disclaimer */}
-        <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
-          <strong>Not legal advice.</strong> ContractLens provides information
-          grounded in your contract text only. Consult a qualified lawyer for
-          legal decisions.
-        </div>
-
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex gap-3 ${
-              msg.role === "USER" ? "flex-row-reverse" : "flex-row"
-            }`}
-          >
-            {/* Avatar */}
-            <div
-              className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
-                msg.role === "USER"
-                  ? "bg-blue-600"
-                  : "bg-slate-100 border border-slate-200"
-              }`}
-            >
-              {msg.role === "USER" ? (
-                <User className="w-4 h-4 text-white" />
-              ) : (
-                <Bot className="w-4 h-4 text-slate-600" />
-              )}
+      {/* Main Chat Container */}
+      <div className="flex-1 flex flex-col min-h-0 p-6 max-w-5xl w-full mx-auto">
+        <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+          {loading ? (
+            <div className="p-8 text-center text-sm text-slate-400">
+              Loading chat history from database...
             </div>
-
-            {/* Bubble */}
-            <div
-              className={`max-w-2xl ${
-                msg.role === "USER" ? "items-end" : "items-start"
-              } flex flex-col`}
-            >
+          ) : messages.length === 0 ? (
+            <div className="p-8 text-center space-y-3 bg-white rounded-2xl border border-slate-200 shadow-sm">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-800">
+                Ask anything about {contract?.title || "this contract"}
+              </h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                Answers are strictly grounded in contract text with page & section citations.
+              </p>
+              <div className="flex flex-wrap justify-center gap-2 pt-2">
+                {[
+                  "What is the monthly payment fee?",
+                  "When does this agreement expire?",
+                  "What are the termination conditions?",
+                ].map((sample) => (
+                  <button
+                    key={sample}
+                    onClick={() => setInput(sample)}
+                    className="text-xs font-semibold px-3 py-1.5 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded-xl transition-colors"
+                  >
+                    "{sample}"
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            messages.map((msg) => (
               <div
-                className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                  msg.role === "USER"
-                    ? "bg-blue-600 text-white rounded-tr-sm"
-                    : "bg-white border border-slate-200 text-slate-800 rounded-tl-sm"
+                key={msg.id}
+                className={`flex gap-3 ${
+                  msg.role === "USER" ? "justify-end" : "justify-start"
                 }`}
               >
-                <MessageContent content={msg.content} />
-              </div>
-              {/* Citations */}
-              {msg.citations && msg.citations.length > 0 && (
-                <div className="mt-2 w-full space-y-1">
-                  <p className="text-xs text-slate-400 flex items-center gap-1">
-                    <BookOpen className="w-3 h-3" />
-                    Sources cited
-                  </p>
-                  {msg.citations.map((c) => (
-                    <CitationCard
-                      key={c.chunk_id}
-                      citation={c}
-                      contractId={contract.id}
-                    />
-                  ))}
+                {msg.role === "ASSISTANT" && (
+                  <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-1">
+                    <Bot className="w-4 h-4" />
+                  </div>
+                )}
+
+                <div
+                  className={`max-w-2xl rounded-2xl p-4 text-sm leading-relaxed shadow-sm space-y-3 ${
+                    msg.role === "USER"
+                      ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-medium"
+                      : "bg-white border border-slate-200 text-slate-800"
+                  }`}
+                >
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+
+                  {/* Citations Block */}
+                  {msg.citations && msg.citations.length > 0 && (
+                    <div className="pt-3 border-t border-slate-100 space-y-2">
+                      <p className="text-xs font-bold uppercase tracking-wider text-blue-600 flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5" /> Source Evidence Citations:
+                      </p>
+                      <div className="space-y-1.5">
+                        {msg.citations.map((cite, idx) => (
+                          <Link
+                            key={idx}
+                            href={`/contracts/${id}/source`}
+                            className="block p-2 rounded-lg bg-blue-50/80 hover:bg-blue-100/80 border border-blue-100 text-xs transition-colors group"
+                          >
+                            <div className="flex items-center justify-between text-blue-700 font-semibold mb-0.5">
+                              <span>
+                                Page {cite.source_page} · {cite.source_section}
+                              </span>
+                              <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                            </div>
+                            <p className="text-slate-600 italic line-clamp-2">
+                              "{cite.snippet}"
+                            </p>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-        ))}
 
-        {/* Typing indicator */}
-        {loading && (
-          <div className="flex gap-3">
-            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 border border-slate-200 shrink-0">
-              <Bot className="w-4 h-4 text-slate-600" />
-            </div>
-            <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3">
-              <div className="flex gap-1 items-center">
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:0ms]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:150ms]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:300ms]" />
+                {msg.role === "USER" && (
+                  <div className="w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center shrink-0 shadow-sm mt-1">
+                    <UserIcon className="w-4 h-4" />
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+
+          {sending && (
+            <div className="flex gap-3 justify-start">
+              <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 animate-pulse">
+                <Bot className="w-4 h-4" />
+              </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 text-xs font-semibold text-slate-500 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-blue-500 animate-spin" />
+                Searching contract vector chunks & generating grounded answer...
               </div>
             </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
+          )}
 
-      {/* Suggestions */}
-      <div className="px-8 pb-2">
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {SUGGESTED_QUESTIONS.map((q) => (
-            <button
-              key={q}
-              onClick={() => handleSuggestion(q)}
-              className="shrink-0 px-3 py-1.5 text-xs text-slate-600 bg-white border border-slate-200 rounded-full hover:border-blue-300 hover:text-blue-700 transition-colors whitespace-nowrap"
-            >
-              {q}
-            </button>
-          ))}
+          <div ref={messagesEndRef} />
         </div>
-      </div>
 
-      {/* Input */}
-      <div className="px-8 pb-6">
-        <form
-          onSubmit={handleSubmit}
-          className="flex gap-2 bg-white border border-slate-200 rounded-xl p-2 shadow-sm focus-within:border-blue-400 transition-colors"
-        >
+        {/* Input Bar */}
+        <form onSubmit={handleSend} className="mt-4 flex gap-2">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask a question about this contract…"
-            className="flex-1 px-3 py-2 text-sm bg-transparent outline-none text-slate-800 placeholder:text-slate-400"
-            disabled={loading}
+            placeholder="Ask a question about this contract..."
+            className="flex-1 px-4 py-3 bg-white border border-slate-300 rounded-2xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
           />
           <button
             type="submit"
-            disabled={!input.trim() || loading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            disabled={!input.trim() || sending}
+            className="px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 text-white font-semibold rounded-2xl text-sm shadow-md transition-all flex items-center gap-2"
           >
             <Send className="w-4 h-4" />
             Send

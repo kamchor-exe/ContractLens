@@ -1,23 +1,11 @@
 "use client";
 
-import { use, useState } from "react";
-import Link from "next/link";
-import { ArrowUpDown, BookOpen } from "lucide-react";
+import { use, useEffect, useState } from "react";
+import { CheckSquare, AlertTriangle, CheckCircle, Clock } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { ContractTabs, ObligationStatusBadge } from "@/components/ui/Badges";
-import { MOCK_CONTRACTS, MOCK_OBLIGATIONS } from "@/lib/mock-data";
-import type { Obligation, ObligationStatus } from "@/lib/types";
-
-type SortField = "responsible_party" | "due_date" | "status";
-
-function formatDate(dateStr: string | null) {
-  if (!dateStr) return "Ongoing";
-  return new Date(dateStr).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
+import { fetchContractById, fetchObligations, updateObligationStatus } from "@/lib/api";
+import type { Contract, Obligation, ObligationStatus } from "@/lib/types";
 
 export default function ObligationsPage({
   params,
@@ -25,210 +13,154 @@ export default function ObligationsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const contract = MOCK_CONTRACTS.find((c) => c.id === id) ?? MOCK_CONTRACTS[0];
-  const obligations = MOCK_OBLIGATIONS.filter((o) => o.contract_id === id);
+  const [contract, setContract] = useState<Contract | null>(null);
+  const [obligations, setObligations] = useState<Obligation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState<string>("ALL");
 
-  const [sortField, setSortField] = useState<SortField>("due_date");
-  const [sortAsc, setSortAsc] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<ObligationStatus | "ALL">(
-    "ALL"
-  );
-  const [statuses, setStatuses] = useState<Record<string, ObligationStatus>>(
-    Object.fromEntries(obligations.map((o) => [o.id, o.status]))
-  );
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [cData, obData] = await Promise.all([
+          fetchContractById(id),
+          fetchObligations(id).catch(() => []),
+        ]);
+        setContract(cData);
+        setObligations(obData);
+      } catch (err) {
+        console.error("Error loading obligations:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, [id]);
 
-  function toggleSort(field: SortField) {
-    if (sortField === field) setSortAsc((v) => !v);
-    else {
-      setSortField(field);
-      setSortAsc(true);
+  async function handleStatusToggle(obId: string, currentStatus: ObligationStatus) {
+    const nextStatus: ObligationStatus =
+      currentStatus === "COMPLETED" ? "PENDING" : "COMPLETED";
+
+    // Optimistic UI update
+    setObligations((prev) =>
+      prev.map((o) => (o.id === obId ? { ...o, status: nextStatus } : o))
+    );
+
+    try {
+      await updateObligationStatus(obId, nextStatus);
+    } catch (e) {
+      console.error("Failed to update status on backend:", e);
+      // Revert on error
+      setObligations((prev) =>
+        prev.map((o) => (o.id === obId ? { ...o, status: currentStatus } : o))
+      );
     }
   }
 
-  function cycleStatus(id: string) {
-    const order: ObligationStatus[] = ["PENDING", "COMPLETED", "OVERDUE"];
-    setStatuses((prev) => {
-      const cur = prev[id];
-      const next = order[(order.indexOf(cur) + 1) % order.length];
-      return { ...prev, [id]: next };
-    });
-  }
-
-  const filtered = obligations.filter(
-    (o) => statusFilter === "ALL" || statuses[o.id] === statusFilter
-  );
-
-  const sorted = [...filtered].sort((a, b) => {
-    let av: string, bv: string;
-    if (sortField === "due_date") {
-      av = a.due_date ?? "9999-12-31";
-      bv = b.due_date ?? "9999-12-31";
-    } else if (sortField === "responsible_party") {
-      av = a.responsible_party;
-      bv = b.responsible_party;
-    } else {
-      av = statuses[a.id];
-      bv = statuses[b.id];
-    }
-    return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+  const filteredObligations = obligations.filter((o) => {
+    if (filterStatus === "ALL") return true;
+    return o.status === filterStatus;
   });
-
-  const SortIcon = ({ field }: { field: SortField }) => (
-    <ArrowUpDown
-      className={`w-3 h-3 ml-1 inline-block ${
-        sortField === field ? "text-blue-500" : "text-slate-300"
-      }`}
-    />
-  );
 
   return (
     <div>
       <PageHeader
-        title="Obligations"
-        subtitle={contract.title}
+        title={contract ? `${contract.title} — Obligations` : "Obligations"}
+        subtitle="WHO | ACTION | WHEN | STATUS | SOURCE EVIDENCE"
         breadcrumbs={[
           { label: "Dashboard", href: "/" },
-          { label: contract.title, href: `/contracts/${contract.id}` },
+          { label: contract?.title || "Contract", href: `/contracts/${id}` },
           { label: "Obligations" },
         ]}
       />
-      <ContractTabs contractId={contract.id} active="obligations" />
+      <ContractTabs contractId={id} active="obligations" />
 
-      <div className="p-8 space-y-4">
-        {/* ─ Filters ─ */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm text-slate-500">Filter:</span>
-          {(["ALL", "PENDING", "OVERDUE", "COMPLETED"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-                statusFilter === s
-                  ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
-              }`}
-            >
-              {s === "ALL" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
-            </button>
-          ))}
-          <span className="ml-auto text-xs text-slate-400">
-            {sorted.length} obligation{sorted.length !== 1 ? "s" : ""}
-          </span>
+      <div className="p-8 space-y-6">
+        {/* Filters bar */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            {["ALL", "PENDING", "COMPLETED", "OVERDUE"].map((st) => (
+              <button
+                key={st}
+                onClick={() => setFilterStatus(st)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  filterStatus === st
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {st}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500 font-medium">
+            Showing {filteredObligations.length} of {obligations.length} obligations
+          </p>
         </div>
 
-        {/* ─ Table ─ */}
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th
-                  className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-800"
-                  onClick={() => toggleSort("responsible_party")}
-                >
-                  Who
-                  <SortIcon field="responsible_party" />
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                  Action
-                </th>
-                <th
-                  className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-800"
-                  onClick={() => toggleSort("due_date")}
-                >
-                  When
-                  <SortIcon field="due_date" />
-                </th>
-                <th
-                  className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-800"
-                  onClick={() => toggleSort("status")}
-                >
-                  Status
-                  <SortIcon field="status" />
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                  Source
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {sorted.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="px-4 py-8 text-center text-sm text-slate-400"
-                  >
-                    No obligations match the filter.
-                  </td>
-                </tr>
-              ) : (
-                sorted.map((ob) => (
-                  <tr key={ob.id} className="hover:bg-slate-50 group">
-                    <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">
-                      {ob.responsible_party}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700 max-w-xs">
-                      <p className="line-clamp-2">{ob.action}</p>
-                      <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">
-                        {ob.due_rule}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span
-                        className={`text-sm ${
-                          ob.due_date &&
-                          new Date(ob.due_date) < new Date() &&
-                          statuses[ob.id] !== "COMPLETED"
-                            ? "text-red-600 font-semibold"
-                            : "text-slate-700"
-                        }`}
-                      >
-                        {formatDate(ob.due_date)}
+        {loading ? (
+          <div className="p-8 bg-white rounded-xl border border-slate-200 text-center text-sm text-slate-400">
+            Loading obligations from database...
+          </div>
+        ) : filteredObligations.length === 0 ? (
+          <div className="p-8 bg-white rounded-xl border border-slate-200 text-center text-sm text-slate-400">
+            No obligations found matching current filter
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filteredObligations.map((ob) => (
+              <div
+                key={ob.id}
+                className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-3 hover:border-blue-300 transition-all"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                        {ob.responsible_party}
                       </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => cycleStatus(ob.id)}
-                        className="hover:opacity-80 transition-opacity"
-                        title="Click to cycle status"
-                      >
-                        <ObligationStatusBadge status={statuses[ob.id]} />
-                      </button>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/contracts/${contract.id}/source?section=${encodeURIComponent(ob.source_section)}&page=${ob.source_page}`}
-                        className="flex items-center gap-1 text-xs text-blue-600 hover:underline whitespace-nowrap"
-                      >
-                        <BookOpen className="w-3 h-3" />
-                        p.{ob.source_page}
-                      </Link>
-                      <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[150px]">
-                        {ob.source_section}
-                      </p>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                      <ObligationStatusBadge status={ob.status} />
+                    </div>
+                    <h3 className="text-sm font-semibold text-slate-900 leading-snug">
+                      {ob.action}
+                    </h3>
+                  </div>
 
-        {/* Obligation count summary */}
-        <div className="flex gap-6 text-sm text-slate-500">
-          {(["PENDING", "OVERDUE", "COMPLETED"] as ObligationStatus[]).map(
-            (s) => {
-              const count = Object.values(statuses).filter(
-                (v) => v === s
-              ).length;
-              return (
-                <span key={s}>
-                  <span className="font-semibold text-slate-700">{count}</span>{" "}
-                  {s.toLowerCase()}
-                </span>
-              );
-            }
-          )}
-        </div>
+                  {/* Quick status toggle button */}
+                  <button
+                    onClick={() => handleStatusToggle(ob.id, ob.status)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
+                      ob.status === "COMPLETED"
+                        ? "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                        : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                    }`}
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    {ob.status === "COMPLETED" ? "Mark Pending" : "Mark Complete"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-slate-50 p-3 rounded-lg border border-slate-100">
+                  <div>
+                    <span className="font-semibold text-slate-500">Due Rule / Date:</span>{" "}
+                    <span className="text-slate-800 font-medium">{ob.due_rule}</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-500">Contract Source:</span>{" "}
+                    <span className="text-slate-800 font-medium">
+                      Page {ob.source_page} ({ob.source_section})
+                    </span>
+                  </div>
+                </div>
+
+                {ob.source_text && (
+                  <p className="text-xs italic text-slate-500 border-l-2 border-blue-400 pl-3 py-0.5">
+                    "{ob.source_text}"
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
