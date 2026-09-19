@@ -9,6 +9,8 @@ from app.db.seed import seed_demo_user
 from app.models.models import ChatMessage, MessageRole, ContractChunk
 from app.schemas.schemas import ChatMessageCreate, ChatMessageResponse
 
+from app.services.rag_service import rag_service
+
 router = APIRouter(prefix="/contracts/{contract_id}", tags=["Chat & RAG"])
 
 @router.get("/chat", response_model=List[ChatMessageResponse])
@@ -31,28 +33,12 @@ async def ask_question(
     db: AsyncSession = Depends(get_db)
 ):
     demo_user = await seed_demo_user(db)
-    
-    # Save user message
-    user_msg = ChatMessage(
+    assistant_msg = await rag_service.ask_question(
         contract_id=contract_id,
+        question=payload.content,
         user_id=demo_user.id,
-        role=MessageRole.USER,
-        content=payload.content
+        db=db
     )
-    db.add(user_msg)
-    await db.commit()
-
-    # Stub response (real grounded RAG in Phase 9)
-    assistant_msg = ChatMessage(
-        contract_id=contract_id,
-        user_id=demo_user.id,
-        role=MessageRole.ASSISTANT,
-        content="This is a stub response from the backend. Real RAG Q&A with grounded evidence and citations will be connected in Phase 9.",
-        citations=[]
-    )
-    db.add(assistant_msg)
-    await db.commit()
-    await db.refresh(assistant_msg)
     return assistant_msg
 
 @router.get("/chunks/{chunk_id}")
