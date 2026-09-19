@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.db.database import engine, AsyncSessionLocal
 from app.db.seed import seed_demo_user
-from app.api import contracts, obligations, deadlines, chat, reminders
+from app.api import contracts, obligations, deadlines, chat, reminders, clauses
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,6 +39,7 @@ app.include_router(obligations.router, prefix="/api")
 app.include_router(deadlines.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(reminders.router, prefix="/api")
+app.include_router(clauses.router, prefix="/api")
 
 @app.get("/health", tags=["Health"])
 async def health_check():
