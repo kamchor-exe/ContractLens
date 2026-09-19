@@ -16,6 +16,7 @@ from app.schemas.schemas import ContractResponse, ContractDetailResponse
 from app.services.pdf_service import pdf_service
 from app.services.extraction_service import extraction_service, ExtractionResult
 from app.services import deadline_service as dl_svc
+from app.services.vector_service import vector_service
 
 router = APIRouter(prefix="/contracts", tags=["Contracts"])
 
@@ -189,6 +190,9 @@ async def upload_contract(
 
         # 7. Generate deadlines + reminders (pure Python — no LLM date math)
         await dl_svc.generate_for_contract(contract, extraction, demo_user.id, db)
+
+        # 8. Text chunking & vector embeddings for RAG Q&A
+        await vector_service.chunk_and_store(contract.id, pdf_result.full_text, db)
 
         await db.commit()
 
