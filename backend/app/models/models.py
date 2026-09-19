@@ -7,7 +7,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from pgvector.sqlalchemy import Vector
 from app.db.database import Base
 
 def generate_uuid():
@@ -169,7 +168,7 @@ class ContractChunk(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     source_page: Mapped[int] = mapped_column(Integer, default=1)
     source_section: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1536), nullable=True)
+    embedding: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
 
     contract: Mapped["Contract"] = relationship("Contract", back_populates="chunks")
 
